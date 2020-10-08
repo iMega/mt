@@ -1,4 +1,4 @@
-module github.com/imega/mt
+module github.com/iMega/mt
 
 go 1.13
 
