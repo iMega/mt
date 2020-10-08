@@ -1,0 +1,22 @@
+version: "3"
+
+services:
+  testamqp:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "15672:15672"
+
+  acceptance:
+    image: ${GO_IMG}
+    environment:
+      - AMQP_HOST=testamqp
+      - AMQP_PORT=5672
+      - AMQP_USER=guest
+      - AMQP_PASS=guest
+      # - MT_LOG_LEVEL=debug
+    depends_on:
+      - testamqp
+    volumes:
+      - ./:${CWD}
+    working_dir: ${CWD}
+    command: /bin/sh -c "go test -timeout 2m -v ${CWD}/tests/..."

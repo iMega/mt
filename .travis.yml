@@ -1,0 +1,13 @@
+language: ruby
+services:
+  - docker
+
+stages:
+  - name: Test
+
+jobs:
+  - stage: Test
+    arch: amd64
+    os: linux
+    script:
+      - make test
