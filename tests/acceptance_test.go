@@ -11,22 +11,16 @@ import (
 	"github.com/streadway/amqp"
 )
 
-// func TestMain(m *testing.M) {
-// 	log.Println("Starting tests")
-
-// 	if err := waitForSystemUnderTestReady(); err != nil {
-// 		log.Fatalf("Failed to connect to amqp")
-// 	}
-
-// 	os.Exit(m.Run())
-// }
-
 var _ = BeforeSuite(func() {
-	log.Println("Starting tests")
-
-	err := WaitForSystemUnderTestReady()
+	err := waitForSystemUnderTestReady()
 	Expect(err).NotTo(HaveOccurred())
 })
+
+const (
+	queueName    = "test_mailer_queue"
+	keyName      = "test_mailer_bind"
+	exchangeName = "test_mailer_ex"
+)
 
 func TestAcceptance(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -35,7 +29,6 @@ func TestAcceptance(t *testing.T) {
 
 func waitForSystemUnderTestReady() error {
 	maxRetries := 60
-	log.Println("Starting tests")
 
 	for {
 		co, err := amqp.Dial(getDSN())

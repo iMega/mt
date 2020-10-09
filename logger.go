@@ -7,6 +7,13 @@ import (
 	"strings"
 )
 
+// Logger is an interface for logger to pass into mt server.
+type Logger interface {
+	Infof(format string, args ...interface{})
+	Errorf(format string, args ...interface{})
+	Debugf(format string, args ...interface{})
+}
+
 const (
 	errorLog int = iota
 	infoLog
@@ -51,13 +58,13 @@ func newLogger() Logger {
 }
 
 func (l *logger) Infof(format string, args ...interface{}) {
-	l.loggers[infoLog].Printf(format, args)
+	l.loggers[infoLog].Printf(format, args...)
 }
 
 func (l *logger) Errorf(format string, args ...interface{}) {
-	l.loggers[errorLog].Printf(format, args)
+	l.loggers[errorLog].Printf(format, args...)
 }
 
 func (l *logger) Debugf(format string, args ...interface{}) {
-	l.loggers[debugLog].Printf(format, args)
+	l.loggers[debugLog].Printf(format, args...)
 }

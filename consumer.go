@@ -18,32 +18,27 @@ type consumer struct {
 }
 
 func newConsumer(dsn string, options *exchange) *consumer {
-	c := &consumer{
+	return &consumer{
 		dsn:     dsn,
 		options: options,
 	}
-
-	return c
 }
 
 func (c *consumer) connect() error {
 	conn, err := dial(c.dsn)
 	if err != nil {
-		logmt.Errorf("failed to connect to amqp, %s", err)
-		return err
+		return fmt.Errorf("failed to connect to amqp, %s", err)
 	}
 	c.conn = conn
 
 	ch, err := channelDeclare(c.conn)
 	if err != nil {
-		logmt.Errorf("failed open channel, %s", err)
-		return err
+		return fmt.Errorf("failed to open channel, %s", err)
 	}
 	c.channel = ch
 
 	if err := exchangeDeclare(c.channel, c.options); err != nil {
-		logmt.Errorf("failed declare exchange, %s", err)
-		return err
+		return fmt.Errorf("failed to declare exchange, %s", err)
 	}
 
 	return nil
@@ -51,7 +46,7 @@ func (c *consumer) connect() error {
 
 func (c *consumer) reConnect() (<-chan amqp.Delivery, error) {
 	if err := c.connect(); err != nil {
-		logmt.Errorf("Could not connect in reconnect call: %v", err.Error())
+		logmt.Errorf("failed to reconnect: %s", err)
 	}
 
 	return c.announce()
@@ -60,21 +55,18 @@ func (c *consumer) reConnect() (<-chan amqp.Delivery, error) {
 func (c *consumer) announce() (<-chan amqp.Delivery, error) {
 	err := c.channel.Qos(c.options.Queue.PrefetchCount, 0, false)
 	if err != nil {
-		logmt.Errorf("Failed set Qos, %s", err)
-		return nil, err
+		return nil, fmt.Errorf("failed to set Qos, %s", err)
 	}
 
 	queue, err := queueDeclare(c.channel, c.options)
 	if err != nil {
-		logmt.Errorf("Failed declare queue, %s", err)
-		return nil, err
+		return nil, fmt.Errorf("Failed to declare queue, %s", err)
 	}
 	c.queue = queue
 
 	delivery, err := getDelivery(c.channel, c.options.Queue.Name, c.options.Queue.Consumer)
 	if err != nil {
-		logmt.Errorf("Failed consume queue, %s", err)
-		return nil, err
+		return nil, fmt.Errorf("failed to consume queue, %s", err)
 	}
 
 	return delivery, nil
@@ -126,7 +118,11 @@ func (c *consumer) handle(deliveries <-chan amqp.Delivery) {
 	}
 }
 
-func getDelivery(channel *amqp.Channel, queueName string, consumer consume) (<-chan amqp.Delivery, error) {
+func getDelivery(
+	channel *amqp.Channel,
+	queueName string,
+	consumer consume,
+) (<-chan amqp.Delivery, error) {
 	return channel.Consume(
 		queueName,
 		consumer.Tag,
@@ -180,17 +176,19 @@ func queueDeclare(channel *amqp.Channel, opts *exchange) (*amqp.Queue, error) {
 		opts.Queue.Arguments,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed queue declare, %s", err)
+		return nil, fmt.Errorf("failed to declare queue, %s", err)
 	}
 
-	if err = channel.QueueBind(
+	err = channel.QueueBind(
 		opts.Queue.Name,
 		opts.Binding.Key,
 		opts.Name,
 		opts.Binding.NoWait,
 		opts.Binding.Arguments,
-	); err != nil {
-		return nil, fmt.Errorf("failed queue bind, %s", err)
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to bind queue, %s", err)
 	}
+
 	return &q, nil
 }

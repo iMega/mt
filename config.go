@@ -7,23 +7,23 @@ import (
 	"github.com/streadway/amqp"
 )
 
-type service struct {
-	Exchange exchange `json:"exchange"`
-}
-
-func (e *exchange) UnmarshalJSON(b []byte) error {
-	type xExchange exchange
-	xEx := xExchange(defaultExchange())
-	if err := json.Unmarshal(b, &xEx); err != nil {
-		return err
+// ParseConfig read config from json
+func ParseConfig(jsonConf []byte) (Config, error) {
+	var conf Config
+	err := json.Unmarshal(jsonConf, &conf)
+	if err != nil {
+		return conf, err
 	}
-	*e = exchange(xEx)
-	return nil
+	return conf, nil
 }
 
 // Config ...
 type Config struct {
 	Services map[string]service `json:"services"`
+}
+
+type service struct {
+	Exchange exchange `json:"exchange"`
 }
 
 type exchange struct {
@@ -37,6 +37,16 @@ type exchange struct {
 
 	Binding binding `json:"binding,omitempty"`
 	Queue   queue   `json:"queue,omitempty"`
+}
+
+func (e *exchange) UnmarshalJSON(b []byte) error {
+	type xExchange exchange
+	xEx := xExchange(defaultExchange())
+	if err := json.Unmarshal(b, &xEx); err != nil {
+		return err
+	}
+	*e = exchange(xEx)
+	return nil
 }
 
 func defaultExchange() exchange {
@@ -116,18 +126,6 @@ func defaultConsumer() consume {
 	}
 }
 
-// ParseConfig read config from json
-func ParseConfig(jsonConf []byte) (Config, error) {
-	var conf Config
-	err := json.Unmarshal(jsonConf, &conf)
-	if err != nil {
-		return conf, err
-	}
-	return conf, nil
-}
-
 func uniqueConsumerTag() string {
-	uid := uuid.New()
-
-	return "ctag-" + uid.String()
+	return "ctag-" + uuid.New().String()
 }

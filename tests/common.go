@@ -2,12 +2,11 @@ package acceptance
 
 import (
 	"fmt"
-	"log"
 	"os"
-	"testing"
+	"time"
 
+	. "github.com/onsi/gomega"
 	"github.com/streadway/amqp"
-	"github.com/stretchr/testify/assert"
 )
 
 var conn *amqp.Connection
@@ -35,24 +34,16 @@ func (a *aMQP) String() string {
 
 func getDSN() string {
 	host, err := getConfigValue("AMQP_HOST")
-	if err != nil {
-		log.Fatalf("failed get value of config, %s", err)
-	}
+	Expect(err).NotTo(HaveOccurred())
 
 	port, err := getConfigValue("AMQP_PORT")
-	if err != nil {
-		log.Fatalf("failed get value of config, %s", err)
-	}
+	Expect(err).NotTo(HaveOccurred())
 
 	user, err := getConfigValue("AMQP_USER")
-	if err != nil {
-		log.Fatalf("failed get value of config, %s", err)
-	}
+	Expect(err).NotTo(HaveOccurred())
 
 	pass, err := getConfigValue("AMQP_PASS")
-	if err != nil {
-		log.Fatalf("failed get value of config, %s", err)
-	}
+	Expect(err).NotTo(HaveOccurred())
 
 	c := aMQP{
 		Host: host,
@@ -64,13 +55,15 @@ func getDSN() string {
 	return c.String()
 }
 
-func setup(t *testing.T) {
+func setup() {
 	ch, err := conn.Channel()
-	assert.NoError(t, err)
+	Expect(err).NotTo(HaveOccurred())
 
-	_, err = ch.QueueDelete("test_mailer_queue", false, false, false)
-	assert.NoError(t, err)
+	_, err = ch.QueueDelete(queueName, false, false, false)
+	Expect(err).NotTo(HaveOccurred())
 
-	err = ch.ExchangeDelete("test_mailer_ex", false, false)
-	assert.NoError(t, err)
+	err = ch.ExchangeDelete(exchangeName, false, false)
+	Expect(err).NotTo(HaveOccurred())
+
+	<-time.After(time.Duration(300 * time.Millisecond))
 }

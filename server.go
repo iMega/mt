@@ -21,19 +21,6 @@ type MT interface {
 	Shutdown() error
 }
 
-// Logger is an interface for logger to pass into mt server.
-type Logger interface {
-	Infof(format string, args ...interface{})
-	Errorf(format string, args ...interface{})
-	Debugf(format string, args ...interface{})
-}
-
-type route struct {
-	pattern  string
-	handler  func(*Request) error
-	consumer *consumer
-}
-
 // Request from chan
 type Request struct {
 	Body []byte
@@ -82,6 +69,12 @@ func WithLogger(log Logger) Option {
 	}
 }
 
+type route struct {
+	pattern  string
+	handler  func(*Request) error
+	consumer *consumer
+}
+
 type mt struct {
 	dsn        string
 	config     Config
@@ -99,14 +92,18 @@ func (t *mt) ConnectAndServe() error {
 
 		err := c.connect()
 		if err != nil {
-			logmt.Errorf("Failed connect consumer to amqp, %s", err)
+			logmt.Errorf("failed connect consumer to amqp, %s", err)
 			return err
 		}
 
+		logmt.Debugf("consumer connected to %s", c.options.Queue.Name)
+
 		d, err := c.announce()
 		if err != nil {
-			logmt.Errorf("Failed announce consumer")
+			logmt.Errorf("failed announce consumer")
 		}
+
+		logmt.Debugf("consumer received message from %s", c.options.Queue.Name)
 
 		go c.handle(d)
 	}
@@ -134,14 +131,17 @@ func dial(dsn string) (*amqp.Connection, error) {
 			},
 		})
 		if err == nil {
+			logmt.Debugf("connection established")
 			return conn, nil
 		}
-		fmt.Println("==")
-		logmt.Errorf("Failed to connect to amqp %s", err)
+
+		logmt.Errorf("failed to connect to amqp %s", err)
+
 		if maxRetries == 0 {
 			return nil, fmt.Errorf("failed connection to amqp, %s", err)
 		}
 		maxRetries--
+
 		<-time.After(time.Duration(1 * time.Second))
 	}
 }
@@ -188,7 +188,7 @@ func (t *mt) Call(serviceName string, request Request, res func(response Respons
 		return err
 	}()
 
-	logmt.Debugf("CALL TO QUEUE: %s", q.Name)
+	logmt.Debugf("call to queue: %s", q.Name)
 	deliveries, err := getDelivery(ch, q.Name, consume{})
 	if err != nil {
 		return err
@@ -217,8 +217,12 @@ func (t *mt) Cast(serviceName string, request Request) error {
 	if err != nil {
 		return err
 	}
+	defer func() error {
+		err := ch.Close()
+		return err
+	}()
 
-	err = ch.Publish(
+	return ch.Publish(
 		t.config.Services[serviceName].Exchange.Name,
 		t.config.Services[serviceName].Exchange.Binding.Key,
 		false,
@@ -227,24 +231,23 @@ func (t *mt) Cast(serviceName string, request Request) error {
 			Body: request.Body,
 		},
 	)
-	if err != nil {
-		return err
-	}
-
-	defer func() error {
-		err := ch.Close()
-		return err
-	}()
-
-	return nil
 }
 
 func (t *mt) Shutdown() error {
 	t.destructor.Do(func() {
 
 		for _, r := range t.routes {
+			if r.consumer == nil {
+				continue
+			}
+
 			r.consumer.shutdown = true
 			tag := r.consumer.options.Queue.Consumer.Tag
+
+			if r.consumer.channel == nil {
+				continue
+			}
+
 			if err := r.consumer.channel.Cancel(tag, false); err != nil {
 				logmt.Errorf("failed stops deliveries to the consume %s", tag, err)
 			}
@@ -254,6 +257,9 @@ func (t *mt) Shutdown() error {
 		for {
 			allCloseConn := false
 			for _, r := range t.routes {
+				if r.consumer == nil {
+					continue
+				}
 				if r.consumer.conn != nil {
 					allCloseConn = true
 				}

@@ -5,41 +5,48 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"testing"
 	"time"
 
 	"github.com/iMega/mt"
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
 	"github.com/streadway/amqp"
-	"github.com/stretchr/testify/assert"
 )
 
-func Test_HandlingQueue(t *testing.T) {
-	setup(t)
-
-	var req *mt.Request
-	forever := make(chan bool)
-	t.Run("Create handler", func(t *testing.T) {
-		confJS := []byte(`{
+var _ = Describe("Testing handle queue", func() {
+	var (
+		req     *mt.Request
+		forever = make(chan bool)
+		confJS  = []byte(`{
 			"services":{
 				"test_mailer":{
 					"exchange":{
-						"name": "test_mailer_ex",
+						"name": "` + exchangeName + `",
 						"type": "direct",
+						"durable": false,
 						"binding": {
-							"key": "test_mailer_bind"
+							"key":"` + keyName + `"
 						},
 						"queue": {
-							"name": "test_mailer_queue",
+							"name":"` + queueName + `",
 							"durable": true
 						}
 					}
 				}
 			}
 		}`)
-		conf, err := mt.ParseConfig(confJS)
-		assert.NoError(t, err)
-		transit := mt.NewMT(mt.WithAMQP(getDSN()), mt.WithConfig(conf))
+	)
 
+	It("remove queue and exchange", func() {
+		setup()
+	})
+
+	It("create handler", func() {
+
+		conf, err := mt.ParseConfig(confJS)
+		Expect(err).NotTo(HaveOccurred())
+
+		transit := mt.NewMT(mt.WithAMQP(getDSN()), mt.WithConfig(conf))
 		transit.HandleFunc("test_mailer", func(request *mt.Request) error {
 			defer func() { forever <- true }()
 			req = request
@@ -48,148 +55,103 @@ func Test_HandlingQueue(t *testing.T) {
 
 		go func() {
 			err := transit.ConnectAndServe()
-			assert.NoError(t, err)
+			Expect(err).NotTo(HaveOccurred())
 		}()
 	})
 
-	t.Run("Send message", func(t *testing.T) {
-
+	It("send message", func() {
 		maxRetries := 60
 		for {
 			ch, err := conn.Channel()
-			assert.NoError(t, err)
+			Expect(err).NotTo(HaveOccurred())
 
-			err = ch.ExchangeDeclarePassive("test_mailer_ex", "direct", false, false, false, false, nil)
+			err = ch.ExchangeDeclarePassive(
+				exchangeName,
+				"direct",
+				false,
+				false,
+				false,
+				false,
+				nil,
+			)
 			if err == nil {
 				break
 			}
-			log.Printf("Failed exchange: %s", err)
+
 			if maxRetries == 0 {
 				break
 			}
-			log.Printf("iteration")
+
 			maxRetries--
 			<-time.After(time.Duration(1 * time.Second))
 		}
 		ch, err := conn.Channel()
-		assert.NoError(t, err)
+		Expect(err).NotTo(HaveOccurred())
 
-		ch.Publish("test_mailer_ex", "test_mailer_bind", false, false, amqp.Publishing{
-			Body: []byte("qwerty"),
-		})
+		<-time.After(time.Duration(300 * time.Millisecond))
 
-	})
-
-	<-forever
-
-	t.Run("Assertion", func(t *testing.T) {
-		assert.Equal(t, "qwerty", string(req.Body))
-	})
-}
-
-func Test_CallMessage(t *testing.T) {
-	setup(t)
-
-	var actual []byte
-	t.Run("Create handler message", func(t *testing.T) {
-		ch, err := conn.Channel()
-		assert.NoError(t, err)
-
-		err = ch.ExchangeDeclare("test_mailer_ex", "direct", false, false, false, false, nil)
-		assert.NoError(t, err)
-
-		queue, err := ch.QueueDeclare(
-			"test_mailer_queue", // name
-			false,               // durable
-			false,               // delete when unused
-			false,               // exclusive
-			false,               // no-wait
-			nil,                 // arguments
+		err = ch.Publish(
+			"test_mailer_ex",
+			"test_mailer_bind",
+			false,
+			false,
+			amqp.Publishing{Body: []byte("qwerty")},
 		)
-		assert.NoError(t, err)
-
-		err = ch.QueueBind("test_mailer_queue", "test_mailer_bind", "test_mailer_ex", false, nil)
-		assert.NoError(t, err)
-
-		messages, err := ch.Consume(
-			queue.Name, // queue
-			"",         // consumer
-			true,       // auto-ack
-			false,      // exclusive
-			false,      // no-local
-			false,      // no-wait
-			nil,        // args
-		)
-		assert.NoError(t, err)
-
-		go func() {
-			select {
-			case msg := <-messages:
-				err := ch.Publish("", msg.ReplyTo, false, false, amqp.Publishing{Body: msg.Body})
-				assert.NoError(t, err)
-			case <-time.After(30 * time.Second):
-				log.Panic("nothing has been transferred11")
-			}
-		}()
+		Expect(err).NotTo(HaveOccurred())
 	})
 
-	t.Run("Call message", func(t *testing.T) {
-		confJS := []byte(`{
+	It("assertion", func() {
+		<-forever
+		Expect(string(req.Body)).To(Equal("qwerty"))
+	})
+})
+
+var _ = Describe("Testing call message", func() {
+	var (
+		actual []byte
+		confJS = []byte(`{
 			"services":{
 				"test_mailer":{
 					"exchange":{
-						"name": "test_mailer_ex",
+						"name": "` + exchangeName + `",
 						"type": "direct",
 						"binding": {
-							"key": "test_mailer_bind"
+							"key":"` + keyName + `"
 						},
 						"queue": {
-							"name": "test_mailer_queue",
+							"name":"` + queueName + `",
 							"durable": true
 						}
 					}
 				}
 			}
 		}`)
-		conf, err := mt.ParseConfig(confJS)
-		assert.NoError(t, err)
+	)
 
-		transit := mt.NewMT(mt.WithAMQP(getDSN()), mt.WithConfig(conf))
-		err = transit.Call("test_mailer", mt.Request{Body: []byte("qwerty")}, func(response mt.Response) {
-			actual = response.Body
-		})
-		assert.NoError(t, err)
+	It("remove queue and exchange", func() {
+		setup()
 	})
 
-	t.Run("Assertion", func(t *testing.T) {
-		assert.Equal(t, "qwerty", string(actual))
-	})
-}
+	It("create handler message", func() {
 
-func Test_CastMessage(t *testing.T) {
-	setup(t)
-
-	forever := make(chan bool)
-	var actual []byte
-	t.Run("Create handler message", func(t *testing.T) {
 		ch, err := conn.Channel()
-		assert.NoError(t, err)
+		Expect(err).NotTo(HaveOccurred())
 
-		err = ch.ExchangeDeclare("test_mailer_ex", "direct", false, false, false, false, nil)
-		assert.NoError(t, err)
+		err = ch.ExchangeDeclare(exchangeName, "direct", false, false, false, false, nil)
+		Expect(err).NotTo(HaveOccurred())
 
 		queue, err := ch.QueueDeclare(
-			"test_mailer_queue", // name
-			false,               // durable
-			false,               // delete when unused
-			false,               // exclusive
-			false,               // no-wait
-			nil,                 // arguments
+			queueName, // name
+			false,     // durable
+			false,     // delete when unused
+			false,     // exclusive
+			false,     // no-wait
+			nil,       // arguments
 		)
-		assert.NoError(t, err)
+		Expect(err).NotTo(HaveOccurred())
 
-		err = ch.QueueBind("test_mailer_queue", "test_mailer_bind", "test_mailer_ex", false, nil)
-		assert.NoError(t, err)
+		err = ch.QueueBind(queueName, keyName, exchangeName, false, nil)
+		Expect(err).NotTo(HaveOccurred())
 
 		messages, err := ch.Consume(
 			queue.Name, // queue
@@ -200,65 +162,152 @@ func Test_CastMessage(t *testing.T) {
 			false,      // no-wait
 			nil,        // args
 		)
-		assert.NoError(t, err)
+		Expect(err).NotTo(HaveOccurred())
+
+		go func() {
+			select {
+			case msg := <-messages:
+				err := ch.Publish("", msg.ReplyTo, false, false, amqp.Publishing{Body: msg.Body})
+				Expect(err).NotTo(HaveOccurred())
+			case <-time.After(10 * time.Second):
+				log.Panic("nothing has been transferred")
+			}
+		}()
+	})
+
+	It("call message", func() {
+		conf, err := mt.ParseConfig(confJS)
+		Expect(err).NotTo(HaveOccurred())
+
+		transit := mt.NewMT(mt.WithAMQP(getDSN()), mt.WithConfig(conf))
+		err = transit.Call(
+			"test_mailer",
+			mt.Request{Body: []byte("qwerty")},
+			func(response mt.Response) { actual = response.Body },
+		)
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	It("assertion", func() {
+		Expect(string(actual)).To(Equal("qwerty"))
+	})
+})
+
+var _ = Describe("Testing cast message", func() {
+	var (
+		actual  []byte
+		forever = make(chan bool)
+		confJS  = []byte(`{
+			"services":{
+				"test_mailer":{
+					"exchange":{
+						"name": "` + exchangeName + `",
+						"type": "direct",
+						"binding": {
+							"key":"` + keyName + `"
+						},
+						"queue": {
+							"name":"` + queueName + `",
+							"durable": true
+						}
+					}
+				}
+			}
+		}`)
+	)
+
+	It("remove queue and exchange", func() {
+		setup()
+	})
+
+	It("create handler message", func() {
+		ch, err := conn.Channel()
+		Expect(err).NotTo(HaveOccurred())
+
+		err = ch.ExchangeDeclare(exchangeName, "direct", false, false, false, false, nil)
+		Expect(err).NotTo(HaveOccurred())
+
+		queue, err := ch.QueueDeclare(
+			queueName, // name
+			true,      // durable
+			false,     // delete when unused
+			false,     // exclusive
+			false,     // no-wait
+			nil,       // arguments
+		)
+		Expect(err).NotTo(HaveOccurred())
+
+		err = ch.QueueBind(queueName, keyName, exchangeName, false, nil)
+		Expect(err).NotTo(HaveOccurred())
+
+		messages, err := ch.Consume(
+			queue.Name, // queue
+			"",         // consumer
+			true,       // auto-ack
+			false,      // exclusive
+			false,      // no-local
+			false,      // no-wait
+			nil,        // args
+		)
+		Expect(err).NotTo(HaveOccurred())
 
 		go func() {
 			select {
 			case msg := <-messages:
 				actual = msg.Body
 				forever <- true
-			case <-time.After(20 * time.Second):
+			case <-time.After(10 * time.Second):
 				log.Panic("nothing has been transferred")
 			}
 		}()
 	})
 
-	t.Run("Cast message", func(t *testing.T) {
-		confJS := []byte(`{
-			"services":{
-				"test_mailer":{
-					"exchange":{
-						"name": "test_mailer_ex",
-						"type": "direct",
-						"binding": {
-							"key": "test_mailer_bind"
-						},
-						"queue": {
-							"name": "test_mailer_queue",
-							"durable": true
-						}
-					}
-				}
-			}
-		}`)
+	It("cast message", func() {
 		conf, err := mt.ParseConfig(confJS)
-		assert.NoError(t, err)
+		Expect(err).NotTo(HaveOccurred())
 
 		transit := mt.NewMT(mt.WithAMQP(getDSN()), mt.WithConfig(conf))
 		err = transit.Cast("test_mailer", mt.Request{Body: []byte("qwerty")})
-		assert.NoError(t, err)
+		Expect(err).NotTo(HaveOccurred())
 	})
 
-	<-forever
-
-	t.Run("Assertion", func(t *testing.T) {
-		assert.Equal(t, "qwerty", string(actual))
+	It("assertion", func() {
+		<-forever
+		Expect(string(actual)).To(Equal("qwerty"))
 	})
-}
+})
 
-func Test_ConcurrentConsumers(t *testing.T) {
+var _ = PDescribe("Testing concurrent consumers", func() {
+	const QtyMessageLimit = 1000
+
 	var (
 		messages       int
 		nackedMessages int
 		consumers      []mt.MT
 		forever        = make(chan bool)
+		confJS         = []byte(`{
+			"services":{
+				"test_mailer":{
+					"exchange":{
+						"name": "` + exchangeName + `",
+						"type": "direct",
+						"binding": {
+							"key":"` + keyName + `"
+						},
+						"queue": {
+							"name":"` + queueName + `",
+							"durable": true,
+							"prefetch_count": 20
+						}
+					}
+				}
+			}
+		}`)
 	)
 
-	const QtyMessageLimit = 1000
+	It("create consumers", func() {
+		setup()
 
-	setup(t)
-
-	t.Run("create consumers", func(t *testing.T) {
 		go func() {
 			for {
 				<-time.After(1 * time.Second)
@@ -269,26 +318,8 @@ func Test_ConcurrentConsumers(t *testing.T) {
 			}
 		}()
 
-		confJS := []byte(`{
-			"services":{
-				"test_mailer":{
-					"exchange":{
-						"name": "test_mailer_ex",
-						"type": "direct",
-						"binding": {
-							"key": "test_mailer_bind"
-						},
-						"queue": {
-							"name": "test_mailer_queue",
-							"durable": true,
-							"prefetch_count": 20
-						}
-					}
-				}
-			}
-		}`)
 		conf, err := mt.ParseConfig(confJS)
-		assert.NoError(t, err)
+		Expect(err).NotTo(HaveOccurred())
 
 		for i := 0; i < 10; i++ {
 			transit := mt.NewMT(mt.WithAMQP(getDSN()), mt.WithConfig(conf))
@@ -311,20 +342,18 @@ func Test_ConcurrentConsumers(t *testing.T) {
 
 			go func() {
 				err := c.ConnectAndServe()
-				assert.NoError(t, err)
+				Expect(err).NotTo(HaveOccurred())
 			}()
 		}
-
 	})
 
-	t.Run("Send message", func(t *testing.T) {
-
+	It("send message", func() {
 		maxRetries := 60
 		for {
 			ch, err := conn.Channel()
-			assert.NoError(t, err)
+			Expect(err).NotTo(HaveOccurred())
 
-			err = ch.ExchangeDeclarePassive("test_mailer_ex", "direct", false, false, false, false, nil)
+			err = ch.ExchangeDeclarePassive(exchangeName, "direct", false, false, false, false, nil)
 			if err == nil {
 				break
 			}
@@ -337,19 +366,17 @@ func Test_ConcurrentConsumers(t *testing.T) {
 			<-time.After(time.Duration(1 * time.Second))
 		}
 		ch, err := conn.Channel()
-		assert.NoError(t, err)
+		Expect(err).NotTo(HaveOccurred())
 
 		for n := 0; n < QtyMessageLimit; n++ {
-			ch.Publish("test_mailer_ex", "test_mailer_bind", false, false, amqp.Publishing{
+			ch.Publish(exchangeName, keyName, false, false, amqp.Publishing{
 				Body: []byte("1"),
 			})
 		}
-
 	})
 
-	<-forever
-
-	t.Run("Assertion", func(t *testing.T) {
-		assert.Equal(t, QtyMessageLimit+nackedMessages, messages)
+	It("assertion", func() {
+		<-forever
+		Expect(messages).To(Equal(QtyMessageLimit + nackedMessages))
 	})
-}
+})
