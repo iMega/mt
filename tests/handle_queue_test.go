@@ -277,8 +277,8 @@ var _ = Describe("Testing cast message", func() {
 	})
 })
 
-var _ = PDescribe("Testing concurrent consumers", func() {
-	const QtyMessageLimit = 1000
+var _ = Describe("Testing concurrent consumers", func() {
+	const QtyMessageLimit = 10000
 
 	var (
 		messages       int
@@ -311,7 +311,7 @@ var _ = PDescribe("Testing concurrent consumers", func() {
 		go func() {
 			for {
 				<-time.After(1 * time.Second)
-				fmt.Println(messages)
+				fmt.Println("Quantity messages: ", messages, nackedMessages)
 				if messages >= QtyMessageLimit+nackedMessages {
 					forever <- true
 				}
@@ -326,17 +326,19 @@ var _ = PDescribe("Testing concurrent consumers", func() {
 			consumers = append(consumers, transit)
 		}
 
-		for n, c := range consumers {
+		for _, c := range consumers {
 			c.HandleFunc("test_mailer", func(request *mt.Request) error {
 				messages++
+
 				r := rand.Intn(10)
 				<-time.After(10 * time.Duration(r) * time.Millisecond)
-				fmt.Println(n, "---", messages)
+				// fmt.Println(n, "---", messages)
 
 				if r == 0 {
 					nackedMessages++
 					return errors.New("NACKed message")
 				}
+
 				return nil
 			})
 
@@ -357,12 +359,13 @@ var _ = PDescribe("Testing concurrent consumers", func() {
 			if err == nil {
 				break
 			}
-			log.Printf("Failed exchange: %s", err)
+
 			if maxRetries == 0 {
 				break
 			}
-			log.Printf("iteration")
+
 			maxRetries--
+
 			<-time.After(time.Duration(1 * time.Second))
 		}
 		ch, err := conn.Channel()

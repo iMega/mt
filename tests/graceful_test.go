@@ -77,7 +77,7 @@ var _ = Describe("Testing graceful", func() {
 			ch, err := conn.Channel()
 			Expect(err).NotTo(HaveOccurred())
 
-			err = ch.ExchangeDeclarePassive("test_mailer_ex", "direct", false, false, false, false, nil)
+			err = ch.ExchangeDeclarePassive("test_mailer_ex", "direct", true, false, false, false, nil)
 			if err == nil {
 				break
 			}
