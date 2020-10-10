@@ -19,4 +19,4 @@ services:
     volumes:
       - ./:${CWD}
     working_dir: ${CWD}
-    command: /bin/sh -c "go test -timeout 2m -v ${CWD}/tests/..."
+    command: /bin/sh -c "go test -timeout 3m -v ${CWD}/tests/..."
