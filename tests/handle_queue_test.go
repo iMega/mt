@@ -278,7 +278,7 @@ var _ = Describe("Testing cast message", func() {
 })
 
 var _ = Describe("Testing concurrent consumers", func() {
-	const QtyMessageLimit = 10000
+	const QtyMessageLimit = 5000
 
 	var (
 		messages       int
