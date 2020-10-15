@@ -23,7 +23,23 @@ type MT interface {
 
 // Request from chan
 type Request struct {
-	Body []byte
+	header amqp.Table
+	Body   []byte
+}
+
+// Header returns header from request
+func (r *Request) Header(h string) Converter {
+	v, _ := r.header[h]
+	return Converter{value: v}
+}
+
+// Converter is a interface for converting value of header
+type Converter struct {
+	value interface{}
+}
+
+func (h Converter) String() string {
+	return h.value.(string)
 }
 
 // Response from chan

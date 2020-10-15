@@ -23,7 +23,7 @@ var _ = Describe("Testing handle queue", func() {
 					"exchange":{
 						"name": "` + exchangeName + `",
 						"type": "direct",
-						"durable": false,
+						"durable": true,
 						"binding": {
 							"key":"` + keyName + `"
 						},
@@ -50,6 +50,7 @@ var _ = Describe("Testing handle queue", func() {
 		transit.HandleFunc("test_mailer", func(request *mt.Request) error {
 			defer func() { forever <- true }()
 			req = request
+
 			return nil
 		})
 
@@ -68,7 +69,7 @@ var _ = Describe("Testing handle queue", func() {
 			err = ch.ExchangeDeclarePassive(
 				exchangeName,
 				"direct",
-				false,
+				true,
 				false,
 				false,
 				false,
@@ -137,12 +138,12 @@ var _ = Describe("Testing call message", func() {
 		ch, err := conn.Channel()
 		Expect(err).NotTo(HaveOccurred())
 
-		err = ch.ExchangeDeclare(exchangeName, "direct", false, false, false, false, nil)
+		err = ch.ExchangeDeclare(exchangeName, "direct", true, false, false, false, nil)
 		Expect(err).NotTo(HaveOccurred())
 
 		queue, err := ch.QueueDeclare(
 			queueName, // name
-			false,     // durable
+			true,      // durable
 			false,     // delete when unused
 			false,     // exclusive
 			false,     // no-wait
@@ -180,6 +181,9 @@ var _ = Describe("Testing call message", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		transit := mt.NewMT(mt.WithAMQP(getDSN()), mt.WithConfig(conf))
+
+		<-time.After(300 * time.Millisecond)
+
 		err = transit.Call(
 			"test_mailer",
 			mt.Request{Body: []byte("qwerty")},
@@ -278,7 +282,7 @@ var _ = Describe("Testing cast message", func() {
 })
 
 var _ = Describe("Testing concurrent consumers", func() {
-	const QtyMessageLimit = 5000
+	const QtyMessageLimit = 2000
 
 	var (
 		messages       int
@@ -332,7 +336,6 @@ var _ = Describe("Testing concurrent consumers", func() {
 
 				r := rand.Intn(10)
 				<-time.After(10 * time.Duration(r) * time.Millisecond)
-				// fmt.Println(n, "---", messages)
 
 				if r == 0 {
 					nackedMessages++
@@ -355,7 +358,7 @@ var _ = Describe("Testing concurrent consumers", func() {
 			ch, err := conn.Channel()
 			Expect(err).NotTo(HaveOccurred())
 
-			err = ch.ExchangeDeclarePassive(exchangeName, "direct", false, false, false, false, nil)
+			err = ch.ExchangeDeclarePassive(exchangeName, "direct", true, false, false, false, nil)
 			if err == nil {
 				break
 			}
