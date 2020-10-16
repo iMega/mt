@@ -77,7 +77,7 @@ func (c *consumer) handle(deliveries <-chan amqp.Delivery) {
 	for {
 		tag := c.options.Queue.Consumer.Tag
 		for d := range deliveries {
-			err := c.handler(&Request{Body: d.Body, header: d.Headers})
+			err := c.handler(&Request{Body: d.Body, Header: Header(d.Headers)})
 			if err == nil {
 				logmt.Debugf("Message ACK, consumerTag=%s", tag)
 				if err := d.Ack(false); err != nil {

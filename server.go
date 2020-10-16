@@ -23,23 +23,24 @@ type MT interface {
 
 // Request from chan
 type Request struct {
-	header amqp.Table
+	Header Header
 	Body   []byte
 }
 
-// Header returns header from request
-func (r *Request) Header(h string) Converter {
-	v, _ := r.header[h]
-	return Converter{value: v}
+// A Header represents the key-value pairs in a message header.
+type Header amqp.Table
+
+// AddString adds the key, string value pair to the header.
+func (h Header) AddString(key, value string) {
+	h[key] = value
 }
 
-// Converter is a interface for converting value of header
-type Converter struct {
-	value interface{}
-}
+func (h Header) String(key string) string {
+	if h == nil {
+		return ""
+	}
 
-func (h Converter) String() string {
-	return h.value.(string)
+	return h[key].(string)
 }
 
 // Response from chan
@@ -190,6 +191,7 @@ func (t *mt) Call(serviceName string, request Request, res func(response Respons
 		false,
 		false,
 		amqp.Publishing{
+			Headers: amqp.Table(request.Header),
 			Body:    request.Body,
 			ReplyTo: q.Name,
 		},
@@ -244,7 +246,8 @@ func (t *mt) Cast(serviceName string, request Request) error {
 		false,
 		false,
 		amqp.Publishing{
-			Body: request.Body,
+			Headers: amqp.Table(request.Header),
+			Body:    request.Body,
 		},
 	)
 }
