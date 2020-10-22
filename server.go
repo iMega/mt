@@ -8,7 +8,7 @@ import (
 	"github.com/streadway/amqp"
 )
 
-const version = "0.0.1"
+const version = "1.0.0"
 
 var logmt = newLogger()
 
@@ -19,6 +19,7 @@ type MT interface {
 	Call(serviceName string, request Request, res func(response Response)) error
 	Cast(serviceName string, request Request) error
 	Shutdown() error
+	HealthCheck() bool
 }
 
 // Request from chan
@@ -40,7 +41,12 @@ func (h Header) String(key string) string {
 		return ""
 	}
 
-	return h[key].(string)
+	v, ok := h[key].(string)
+	if !ok {
+		return ""
+	}
+
+	return v
 }
 
 // Response from chan
@@ -134,6 +140,16 @@ func (t *mt) HandleFunc(serviceName string, handler func(*Request) error) {
 		handler: handler,
 	}
 	t.routes = append(t.routes, r)
+}
+
+func (t *mt) HealthCheck() bool {
+	for _, route := range t.routes {
+		if route.consumer.conn == nil || route.consumer.conn.IsClosed() {
+			return false
+		}
+	}
+
+	return true
 }
 
 func dial(dsn string) (*amqp.Connection, error) {
