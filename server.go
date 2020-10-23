@@ -1,7 +1,6 @@
 package mt
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -10,9 +9,7 @@ import (
 
 const version = "1.0.0"
 
-var logmt = newLogger()
-
-// MT is a interface
+// MT is a interface.
 type MT interface {
 	ConnectAndServe() error
 	HandleFunc(serviceName string, handler func(*Request) error)
@@ -22,7 +19,7 @@ type MT interface {
 	HealthCheck() bool
 }
 
-// Request from chan
+// Request from chan.
 type Request struct {
 	Header Header
 	Body   []byte
@@ -49,7 +46,7 @@ func (h Header) String(key string) string {
 	return v
 }
 
-// Response from chan
+// Response from chan.
 type Response struct {
 	Body []byte
 }
@@ -59,36 +56,40 @@ type Handler interface {
 	Serve(*Request)
 }
 
-// NewMT get new instance
+// NewMT get new instance.
 func NewMT(opts ...Option) MT {
-	t := &mt{}
+	t := &mt{
+		log: newLogger(),
+	}
+
 	for _, opt := range opts {
 		opt(t)
 	}
+
 	return t
 }
 
-// Option for MT
+// Option for MT.
 type Option func(*mt)
 
-// WithAMQP use dsn string
+// WithAMQP use dsn string.
 func WithAMQP(dsn string) Option {
 	return func(t *mt) {
 		t.dsn = dsn
 	}
 }
 
-// WithConfig set config
+// WithConfig set config.
 func WithConfig(config Config) Option {
 	return func(t *mt) {
 		t.config = config
 	}
 }
 
-// WithLogger set logger
+// WithLogger set logger.
 func WithLogger(log Logger) Option {
 	return func(t *mt) {
-		logmt = log
+		t.log = log
 	}
 }
 
@@ -104,34 +105,50 @@ type mt struct {
 	routes     []*route
 	connection *amqp.Connection
 	destructor sync.Once
+	log        Logger
 }
 
 func (t *mt) ConnectAndServe() error {
 	for _, route := range t.routes {
 		conf := t.config.Services[route.pattern]
-		c := newConsumer(t.dsn, &conf.Exchange)
-		route.consumer = c
-		c.handler = route.handler
-
-		err := c.connect()
-		if err != nil {
-			logmt.Errorf("failed connect consumer to amqp, %s", err)
-			return err
-		}
-
-		logmt.Debugf("consumer connected to %s", c.options.Queue.Name)
-
-		d, err := c.announce()
-		if err != nil {
-			logmt.Errorf("failed announce consumer")
-		}
-
-		logmt.Debugf("consumer received message from %s", c.options.Queue.Name)
-
-		go c.handle(d)
+		route.consumer = newConsumer(t.log, t.dsn, &conf.Exchange)
+		route.consumer.handler = route.handler
 	}
 
+	t.announce()
+
 	return nil
+}
+
+func (t *mt) announce() {
+	for _, route := range t.routes {
+		if route.consumer.isDialing {
+			continue
+		}
+
+		if err := route.consumer.connect(); err != nil {
+			t.log.Errorf("%s", err)
+
+			return
+		}
+
+		t.log.Debugf(
+			"consumer connected to %s",
+			route.consumer.options.Queue.Name,
+		)
+
+		d, err := route.consumer.announce()
+		if err != nil {
+			t.log.Errorf("failed announce consumer")
+		}
+
+		t.log.Debugf(
+			"consumer received message from %s",
+			route.consumer.options.Queue.Name,
+		)
+
+		go route.consumer.handle(d)
+	}
 }
 
 func (t *mt) HandleFunc(serviceName string, handler func(*Request) error) {
@@ -145,6 +162,8 @@ func (t *mt) HandleFunc(serviceName string, handler func(*Request) error) {
 func (t *mt) HealthCheck() bool {
 	for _, route := range t.routes {
 		if route.consumer.conn == nil || route.consumer.conn.IsClosed() {
+			go t.announce()
+
 			return false
 		}
 	}
@@ -152,11 +171,14 @@ func (t *mt) HealthCheck() bool {
 	return true
 }
 
-func dial(dsn string) (*amqp.Connection, error) {
+const heartbeatInterval = 10
+
+func dial(log Logger, dsn string) (*amqp.Connection, error) {
 	maxRetries := 30
+
 	for {
 		conn, err := amqp.DialConfig(dsn, amqp.Config{
-			Heartbeat: 10 * time.Second,
+			Heartbeat: heartbeatInterval * time.Second,
 			Locale:    "en_US",
 			Properties: amqp.Table{
 				"product": "MT client",
@@ -164,18 +186,19 @@ func dial(dsn string) (*amqp.Connection, error) {
 			},
 		})
 		if err == nil {
-			logmt.Debugf("connection established")
+			log.Debugf("connection established")
+
 			return conn, nil
 		}
 
-		logmt.Errorf("failed to connect to amqp %s", err)
+		log.Errorf("failed to connect to amqp, %s", err)
 
 		if maxRetries == 0 {
-			return nil, fmt.Errorf("failed connection to amqp, %s", err)
+			return nil, err
 		}
 		maxRetries--
 
-		<-time.After(time.Duration(1 * time.Second))
+		<-time.After(1 * time.Second)
 	}
 }
 
@@ -183,12 +206,15 @@ func (t *mt) isConnected() bool {
 	return t.connection != nil
 }
 
-func (t *mt) Call(serviceName string, request Request, res func(response Response)) error {
+const callTimeout = 20
+
+func (t *mt) Call(serviceName string, request Request, res func(response Response)) (err error) {
 	if !t.isConnected() {
-		conn, err := dial(t.dsn)
+		conn, err := dial(t.log, t.dsn)
 		if err != nil {
 			return err
 		}
+
 		t.connection = conn
 	}
 
@@ -201,6 +227,7 @@ func (t *mt) Call(serviceName string, request Request, res func(response Respons
 	if err != nil {
 		return err
 	}
+
 	err = ch.Publish(
 		t.config.Services[serviceName].Exchange.Name,
 		t.config.Services[serviceName].Exchange.Binding.Key,
@@ -216,13 +243,17 @@ func (t *mt) Call(serviceName string, request Request, res func(response Respons
 		return err
 	}
 
-	defer func() error {
-		ch.QueueDelete(q.Name, false, false, false)
-		err := ch.Close()
-		return err
+	defer func() {
+		_, err = ch.QueueDelete(q.Name, false, false, false)
+		if err != nil {
+			return
+		}
+
+		err = ch.Close()
 	}()
 
-	logmt.Debugf("call to queue: %s", q.Name)
+	t.log.Debugf("call to queue: %s", q.Name)
+
 	deliveries, err := getDelivery(ch, q.Name, consume{})
 	if err != nil {
 		return err
@@ -231,19 +262,20 @@ func (t *mt) Call(serviceName string, request Request, res func(response Respons
 	select {
 	case d := <-deliveries:
 		res(Response{Body: d.Body})
-	case <-time.After(20 * time.Second):
+	case <-time.After(callTimeout * time.Second):
 		return err
 	}
 
 	return nil
 }
 
-func (t *mt) Cast(serviceName string, request Request) error {
+func (t *mt) Cast(serviceName string, request Request) (err error) {
 	if !t.isConnected() {
-		conn, err := dial(t.dsn)
+		conn, err := dial(t.log, t.dsn)
 		if err != nil {
 			return err
 		}
+
 		t.connection = conn
 	}
 
@@ -251,9 +283,9 @@ func (t *mt) Cast(serviceName string, request Request) error {
 	if err != nil {
 		return err
 	}
-	defer func() error {
-		err := ch.Close()
-		return err
+
+	defer func() {
+		err = ch.Close()
 	}()
 
 	return ch.Publish(
@@ -270,23 +302,7 @@ func (t *mt) Cast(serviceName string, request Request) error {
 
 func (t *mt) Shutdown() error {
 	t.destructor.Do(func() {
-
-		for _, r := range t.routes {
-			if r.consumer == nil {
-				continue
-			}
-
-			r.consumer.shutdown = true
-			tag := r.consumer.options.Queue.Consumer.Tag
-
-			if r.consumer.channel == nil {
-				continue
-			}
-
-			if err := r.consumer.channel.Cancel(tag, false); err != nil {
-				logmt.Errorf("failed stops deliveries to the consume %s", tag, err)
-			}
-		}
+		t.channelCancel()
 
 		maxRetries := 30
 		for {
@@ -299,7 +315,7 @@ func (t *mt) Shutdown() error {
 					allCloseConn = true
 				}
 			}
-			logmt.Debugf("Wait consumers %d seconds...", maxRetries)
+			t.log.Debugf("Wait consumers %d seconds...", maxRetries)
 
 			if !allCloseConn {
 				break
@@ -314,13 +330,30 @@ func (t *mt) Shutdown() error {
 		}
 
 		if t.connection != nil {
-			err := t.connection.Close()
-			if err != nil {
-				logmt.Errorf("failed mt close connections %s", "")
+			if err := t.connection.Close(); err != nil {
+				t.log.Errorf("failed mt close connections %s", "")
 			}
 		}
-
 	})
 
 	return nil
+}
+
+func (t *mt) channelCancel() {
+	for _, r := range t.routes {
+		if r.consumer == nil {
+			continue
+		}
+
+		r.consumer.shutdown = true
+		tag := r.consumer.options.Queue.Consumer.Tag
+
+		if r.consumer.channel == nil {
+			continue
+		}
+
+		if err := r.consumer.channel.Cancel(tag, false); err != nil {
+			t.log.Errorf("failed stops deliveries to the consume %s", tag, err)
+		}
+	}
 }

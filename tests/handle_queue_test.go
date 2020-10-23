@@ -15,6 +15,7 @@ import (
 
 var _ = Describe("Testing handle queue", func() {
 	var (
+		transit mt.MT
 		req     *mt.Request
 		forever = make(chan bool)
 		confJS  = []byte(`{
@@ -46,7 +47,7 @@ var _ = Describe("Testing handle queue", func() {
 		conf, err := mt.ParseConfig(confJS)
 		Expect(err).NotTo(HaveOccurred())
 
-		transit := mt.NewMT(mt.WithAMQP(getDSN()), mt.WithConfig(conf))
+		transit = mt.NewMT(mt.WithAMQP(getDSN()), mt.WithConfig(conf))
 		transit.HandleFunc("test_mailer", func(request *mt.Request) error {
 			defer func() { forever <- true }()
 			req = request
@@ -104,13 +105,17 @@ var _ = Describe("Testing handle queue", func() {
 	It("assertion", func() {
 		<-forever
 		Expect(string(req.Body)).To(Equal("qwerty"))
+
+		err := transit.Shutdown()
+		Expect(err).NotTo(HaveOccurred())
 	})
 })
 
 var _ = Describe("Testing call message", func() {
 	var (
-		actual []byte
-		confJS = []byte(`{
+		transit mt.MT
+		actual  []byte
+		confJS  = []byte(`{
 			"services":{
 				"test_mailer":{
 					"exchange":{
@@ -180,7 +185,7 @@ var _ = Describe("Testing call message", func() {
 		conf, err := mt.ParseConfig(confJS)
 		Expect(err).NotTo(HaveOccurred())
 
-		transit := mt.NewMT(mt.WithAMQP(getDSN()), mt.WithConfig(conf))
+		transit = mt.NewMT(mt.WithAMQP(getDSN()), mt.WithConfig(conf))
 
 		<-time.After(300 * time.Millisecond)
 
@@ -194,11 +199,15 @@ var _ = Describe("Testing call message", func() {
 
 	It("assertion", func() {
 		Expect(string(actual)).To(Equal("qwerty"))
+
+		err := transit.Shutdown()
+		Expect(err).NotTo(HaveOccurred())
 	})
 })
 
 var _ = Describe("Testing cast message", func() {
 	var (
+		transit mt.MT
 		actual  []byte
 		forever = make(chan bool)
 		confJS  = []byte(`{
@@ -270,7 +279,7 @@ var _ = Describe("Testing cast message", func() {
 		conf, err := mt.ParseConfig(confJS)
 		Expect(err).NotTo(HaveOccurred())
 
-		transit := mt.NewMT(mt.WithAMQP(getDSN()), mt.WithConfig(conf))
+		transit = mt.NewMT(mt.WithAMQP(getDSN()), mt.WithConfig(conf))
 		err = transit.Cast("test_mailer", mt.Request{Body: []byte("qwerty")})
 		Expect(err).NotTo(HaveOccurred())
 	})
@@ -278,6 +287,9 @@ var _ = Describe("Testing cast message", func() {
 	It("assertion", func() {
 		<-forever
 		Expect(string(actual)).To(Equal("qwerty"))
+
+		err := transit.Shutdown()
+		Expect(err).NotTo(HaveOccurred())
 	})
 })
 
@@ -345,10 +357,10 @@ var _ = Describe("Testing concurrent consumers", func() {
 				return nil
 			})
 
-			go func() {
+			go func(c mt.MT) {
 				err := c.ConnectAndServe()
 				Expect(err).NotTo(HaveOccurred())
-			}()
+			}(c)
 		}
 	})
 
@@ -384,5 +396,10 @@ var _ = Describe("Testing concurrent consumers", func() {
 	It("assertion", func() {
 		<-forever
 		Expect(messages).To(Equal(QtyMessageLimit + nackedMessages))
+
+		for _, c := range consumers {
+			err := c.Shutdown()
+			Expect(err).NotTo(HaveOccurred())
+		}
 	})
 })

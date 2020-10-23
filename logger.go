@@ -20,17 +20,16 @@ const (
 	debugLog
 )
 
-var label = []string{
-	errorLog: "ERROR",
-	infoLog:  "INFO",
-	debugLog: "DEBUG",
-}
-
 type logger struct {
 	loggers []*log.Logger
 }
 
 func newLogger() Logger {
+	label := []string{
+		errorLog: "ERROR",
+		infoLog:  "INFO",
+		debugLog: "DEBUG",
+	}
 	errorW := ioutil.Discard
 	infoW := ioutil.Discard
 	debugW := ioutil.Discard

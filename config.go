@@ -7,13 +7,15 @@ import (
 	"github.com/streadway/amqp"
 )
 
-// ParseConfig read config from json
+// ParseConfig read config from json.
 func ParseConfig(jsonConf []byte) (Config, error) {
 	var conf Config
+
 	err := json.Unmarshal(jsonConf, &conf)
 	if err != nil {
 		return conf, err
 	}
+
 	return conf, nil
 }
 
@@ -41,11 +43,15 @@ type exchange struct {
 
 func (e *exchange) UnmarshalJSON(b []byte) error {
 	type xExchange exchange
+
 	xEx := xExchange(defaultExchange())
+
 	if err := json.Unmarshal(b, &xEx); err != nil {
 		return err
 	}
+
 	*e = exchange(xEx)
+
 	return nil
 }
 
@@ -84,8 +90,8 @@ type queue struct {
 	NoWait     bool       `json:"nowait,omitempty"`
 	Arguments  amqp.Table `json:"arguments,omitempty"`
 
-	//@see http://www.rabbitmq.com/blog/2012/04/25/rabbitmq-performance-measurements-part-2/
-	//Консумер не получит следующие n сообщений, пока не подтвердит предыдущие.
+	// @see http://www.rabbitmq.com/blog/2012/04/25/rabbitmq-performance-measurements-part-2/
+	// Консумер не получит следующие n сообщений, пока не подтвердит предыдущие.
 	PrefetchCount int `json:"prefetch_count,omitempty"`
 
 	Consumer consume `json:"consume,omitempty"`
