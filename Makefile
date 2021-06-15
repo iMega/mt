@@ -1,4 +1,4 @@
-REPO = github.com/iMega/mt
+REPO = github.com/imega/mt
 CWD = /go/src/githib.com/$(REPO)
 GO_IMG = golang:stretch
 

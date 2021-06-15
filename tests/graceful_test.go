@@ -3,7 +3,7 @@ package acceptance
 import (
 	"time"
 
-	"github.com/iMega/mt"
+	"github.com/imega/mt"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/streadway/amqp"
