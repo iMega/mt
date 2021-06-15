@@ -6,7 +6,7 @@ test: lint clean
 	@GO_IMG=$(GO_IMG) CWD=$(CWD) docker-compose up --abort-on-container-exit
 
 lint:
-	@docker run --rm -t -v $(CURDIR):$(CWD) -w $(CWD) \
+	@-docker run --rm -t -v $(CURDIR):$(CWD) -w $(CWD) \
 		golangci/golangci-lint golangci-lint run
 
 clean:
