@@ -268,7 +268,7 @@ func (t *mt) Call(serviceName string, request Request, res func(response Respons
 
 	t.log.Debugf("call to queue: %s", q.Name)
 
-	deliveries, err := getDelivery(ch, q.Name, consume{})
+	deliveries, err := getDelivery(ch, q.Name, Consume{})
 	if err != nil {
 		return err
 	}
