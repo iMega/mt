@@ -167,7 +167,7 @@ func (c *consumer) handle(deliveries <-chan amqp.Delivery) {
 func getDelivery(
 	channel *amqp.Channel,
 	queueName string,
-	consumer consume,
+	consumer Сonsume,
 ) (<-chan amqp.Delivery, error) {
 	return channel.Consume(
 		queueName,
