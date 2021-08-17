@@ -35,14 +35,14 @@ func ParseConfig(jsonConf []byte) (Config, error) {
 
 // Config ...
 type Config struct {
-	Services map[string]service `json:"services"`
+	Services map[string]Service `json:"services"`
 }
 
-type service struct {
-	Exchange exchange `json:"exchange"`
+type Service struct {
+	Exchange Exchange `json:"exchange"`
 }
 
-type exchange struct {
+type Exchange struct {
 	Name       string     `json:"name,omitempty"`
 	Type       string     `json:"type,omitempty"`
 	Durable    bool       `json:"durable,omitempty"`
@@ -51,12 +51,12 @@ type exchange struct {
 	NoWait     bool       `json:"nowait,omitempty"`
 	Arguments  amqp.Table `json:"arguments,omitempty"`
 
-	Binding binding `json:"binding,omitempty"`
-	Queue   queue   `json:"queue,omitempty"`
+	Binding Binding `json:"binding,omitempty"`
+	Queue   Queue   `json:"queue,omitempty"`
 }
 
-func (e *exchange) UnmarshalJSON(b []byte) error {
-	type xExchange exchange
+func (e *Exchange) UnmarshalJSON(b []byte) error {
+	type xExchange Exchange
 
 	xEx := xExchange(defaultExchange())
 
@@ -64,13 +64,13 @@ func (e *exchange) UnmarshalJSON(b []byte) error {
 		return err
 	}
 
-	*e = exchange(xEx)
+	*e = Exchange(xEx)
 
 	return nil
 }
 
-func defaultExchange() exchange {
-	return exchange{
+func defaultExchange() Exchange {
+	return Exchange{
 		Name:       "",
 		Type:       "",
 		Durable:    true,
@@ -83,21 +83,21 @@ func defaultExchange() exchange {
 	}
 }
 
-type binding struct {
+type Binding struct {
 	Key       string     `json:"key,omitempty"`
 	NoWait    bool       `json:"nowait,omitempty"`
 	Arguments amqp.Table `json:"arguments,omitempty"`
 }
 
-func defaultBinding() binding {
-	return binding{
+func defaultBinding() Binding {
+	return Binding{
 		Key:       "",
 		NoWait:    false,
 		Arguments: amqp.Table{},
 	}
 }
 
-type queue struct {
+type Queue struct {
 	Name       string     `json:"name,omitempty"`
 	Durable    bool       `json:"durable,omitempty"`
 	AutoDelete bool       `json:"autodelete,omitempty"`
@@ -111,8 +111,8 @@ type queue struct {
 	Consumer consume `json:"consume,omitempty"`
 }
 
-func defaultQueue() queue {
-	return queue{
+func defaultQueue() Queue {
+	return Queue{
 		Name:          "",
 		Durable:       true,
 		AutoDelete:    false,

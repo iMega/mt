@@ -26,14 +26,14 @@ type consumer struct {
 	conn      *amqp.Connection
 	queue     *amqp.Queue
 	channel   *amqp.Channel
-	options   *exchange
+	options   *Exchange
 	dsn       string
 	shutdown  bool
 	isDialing bool
 	log       Logger
 }
 
-func newConsumer(log Logger, dsn string, options *exchange) *consumer {
+func newConsumer(log Logger, dsn string, options *Exchange) *consumer {
 	return &consumer{
 		log:     log,
 		dsn:     dsn,
@@ -189,7 +189,7 @@ func channelDeclare(conn *amqp.Connection) (*amqp.Channel, error) {
 	return channel, nil
 }
 
-func exchangeDeclare(channel *amqp.Channel, opts *exchange) error {
+func exchangeDeclare(channel *amqp.Channel, opts *Exchange) error {
 	if opts.Name == "" {
 		return errExchangeNameEmpty
 	}
@@ -213,7 +213,7 @@ func exchangeDeclare(channel *amqp.Channel, opts *exchange) error {
 	return nil
 }
 
-func queueDeclare(channel *amqp.Channel, opts *exchange) (*amqp.Queue, error) {
+func queueDeclare(channel *amqp.Channel, opts *Exchange) (*amqp.Queue, error) {
 	q, err := channel.QueueDeclare(
 		opts.Queue.Name,
 		opts.Queue.Durable,
