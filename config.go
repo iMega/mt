@@ -108,7 +108,7 @@ type Queue struct {
 	// Консумер не получит следующие n сообщений, пока не подтвердит предыдущие.
 	PrefetchCount int `json:"prefetch_count,omitempty"`
 
-	Consumer Сonsume `json:"consume,omitempty"`
+	Consumer Consume `json:"consume,omitempty"`
 }
 
 func DefaultQueue() Queue {
@@ -123,7 +123,7 @@ func DefaultQueue() Queue {
 	}
 }
 
-type Сonsume struct {
+type Consume struct {
 	Tag string `json:"tag,omitempty"`
 	// управление сообщением в случае невозможности обработки
 	// true - сообщение вновь ставится в очередь
@@ -135,8 +135,8 @@ type Сonsume struct {
 	Arguments amqp.Table `json:"arguments,omitempty"`
 }
 
-func DefaultConsumer() Сonsume {
-	return Сonsume{
+func DefaultConsumer() Consume {
+	return Consume{
 		Tag:       uniqueConsumerTag(),
 		Requeue:   true,
 		NoAck:     false,
