@@ -58,7 +58,7 @@ type Exchange struct {
 func (e *Exchange) UnmarshalJSON(b []byte) error {
 	type xExchange Exchange
 
-	xEx := xExchange(defaultExchange())
+	xEx := xExchange(DefaultExchange())
 
 	if err := json.Unmarshal(b, &xEx); err != nil {
 		return err
@@ -69,7 +69,7 @@ func (e *Exchange) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-func defaultExchange() Exchange {
+func DefaultExchange() Exchange {
 	return Exchange{
 		Name:       "",
 		Type:       "",
@@ -78,8 +78,8 @@ func defaultExchange() Exchange {
 		Internal:   false,
 		NoWait:     false,
 		Arguments:  amqp.Table{},
-		Binding:    defaultBinding(),
-		Queue:      defaultQueue(),
+		Binding:    DefaultBinding(),
+		Queue:      DefaultQueue(),
 	}
 }
 
@@ -89,7 +89,7 @@ type Binding struct {
 	Arguments amqp.Table `json:"arguments,omitempty"`
 }
 
-func defaultBinding() Binding {
+func DefaultBinding() Binding {
 	return Binding{
 		Key:       "",
 		NoWait:    false,
@@ -111,7 +111,7 @@ type Queue struct {
 	Consumer Сonsume `json:"consume,omitempty"`
 }
 
-func defaultQueue() Queue {
+func DefaultQueue() Queue {
 	return Queue{
 		Name:          "",
 		Durable:       true,
@@ -119,7 +119,7 @@ func defaultQueue() Queue {
 		NoWait:        false,
 		Arguments:     amqp.Table{},
 		PrefetchCount: 0,
-		Consumer:      defaultConsumer(),
+		Consumer:      DefaultConsumer(),
 	}
 }
 
@@ -135,7 +135,7 @@ type Сonsume struct {
 	Arguments amqp.Table `json:"arguments,omitempty"`
 }
 
-func defaultConsumer() Сonsume {
+func DefaultConsumer() Сonsume {
 	return Сonsume{
 		Tag:       uniqueConsumerTag(),
 		Requeue:   true,
