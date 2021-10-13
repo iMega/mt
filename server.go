@@ -15,6 +15,7 @@
 package mt
 
 import (
+	"errors"
 	"sync"
 	"time"
 
@@ -22,6 +23,8 @@ import (
 )
 
 const version = "1.0.0"
+
+var errHandleFuncServiceNameEmpty = errors.New("serviceName of handler func is empty")
 
 // MT is a interface.
 type MT interface {
@@ -124,6 +127,10 @@ type mt struct {
 
 func (t *mt) ConnectAndServe() error {
 	for _, route := range t.routes {
+		if route.pattern == "" {
+			return errHandleFuncServiceNameEmpty
+		}
+
 		conf := t.config.Services[route.pattern]
 		route.consumer = newConsumer(t.log, t.dsn, &conf.Exchange)
 		route.consumer.handler = route.handler
