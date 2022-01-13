@@ -138,7 +138,6 @@ func (c *consumer) handle(deliveries <-chan amqp.Delivery) {
 }
 
 func (c *consumer) processDelivery(delivery amqp.Delivery) {
-
 	replyFn := func(r Response) error {
 		msg := amqp.Publishing{Body: r.Body}
 
