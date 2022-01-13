@@ -11,7 +11,7 @@ import (
 
 var _ = Describe("Testing graceful", func() {
 	var (
-		transit mt.MT
+		transit mt.MassTransport
 		confJS  = []byte(`{
 			"services":{
 				"test_mailer":{
@@ -54,12 +54,12 @@ var _ = Describe("Testing graceful", func() {
 
 		transit = mt.NewMT(mt.WithAMQP(getDSN()), mt.WithConfig(conf))
 
-		transit.HandleFunc("test_mailer", func(request *mt.Request) error {
+		transit.AddHandler("test_mailer", func(request *mt.Request, reply mt.ReplyFunc) error {
 			<-time.After(10 * time.Second)
 			return nil
 		})
 
-		transit.HandleFunc("test_mailer_2", func(request *mt.Request) error {
+		transit.AddHandler("test_mailer_2", func(request *mt.Request, reply mt.ReplyFunc) error {
 			return nil
 		})
 

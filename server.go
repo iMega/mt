@@ -16,22 +16,23 @@ package mt
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/streadway/amqp"
 )
 
-const version = "1.0.0"
+const version = "1.1.0"
 
 var errHandleFuncServiceNameEmpty = errors.New("serviceName of handler func is empty")
 
-// MT is a interface.
-type MT interface {
+// MassTransport is a interface.
+type MassTransport interface {
 	ConnectAndServe() error
-	HandleFunc(serviceName string, handler func(*Request) error)
-	Call(serviceName string, request Request, res func(response Response)) error
-	Cast(serviceName string, request Request) error
+	AddHandler(ServiceName, HandlerFunc)
+	Call(ServiceName, Request, ReplyFunc) error
+	Cast(ServiceName, Request) error
 	Shutdown() error
 	HealthCheck() bool
 }
@@ -41,6 +42,12 @@ type Request struct {
 	Header Header
 	Body   []byte
 }
+
+type ServiceName string
+
+type ReplyFunc func(Response) error
+
+type HandlerFunc func(*Request, ReplyFunc) error
 
 // A Header represents the key-value pairs in a message header.
 type Header amqp.Table
@@ -74,49 +81,49 @@ type Handler interface {
 }
 
 // NewMT get new instance.
-func NewMT(opts ...Option) MT {
-	t := &mt{
+func NewMT(opts ...Option) *MT {
+	instance := &MT{
 		log: newLogger(),
 	}
 
 	for _, opt := range opts {
-		opt(t)
+		opt(instance)
 	}
 
-	return t
+	return instance
 }
 
 // Option for MT.
-type Option func(*mt)
+type Option func(*MT)
 
 // WithAMQP use dsn string.
 func WithAMQP(dsn string) Option {
-	return func(t *mt) {
+	return func(t *MT) {
 		t.dsn = dsn
 	}
 }
 
 // WithConfig set config.
 func WithConfig(config Config) Option {
-	return func(t *mt) {
+	return func(t *MT) {
 		t.config = config
 	}
 }
 
 // WithLogger set logger.
 func WithLogger(log Logger) Option {
-	return func(t *mt) {
+	return func(t *MT) {
 		t.log = log
 	}
 }
 
 type route struct {
-	pattern  string
-	handler  func(*Request) error
+	pattern  ServiceName
+	handler  HandlerFunc
 	consumer *consumer
 }
 
-type mt struct {
+type MT struct {
 	dsn        string
 	config     Config
 	routes     []*route
@@ -125,7 +132,7 @@ type mt struct {
 	log        Logger
 }
 
-func (t *mt) ConnectAndServe() error {
+func (t *MT) ConnectAndServe() error {
 	for _, route := range t.routes {
 		if route.pattern == "" {
 			return errHandleFuncServiceNameEmpty
@@ -141,14 +148,14 @@ func (t *mt) ConnectAndServe() error {
 	return nil
 }
 
-func (t *mt) announce() {
+func (t *MT) announce() {
 	for _, route := range t.routes {
 		if route.consumer.isDialing {
 			continue
 		}
 
 		if err := route.consumer.connect(); err != nil {
-			t.log.Errorf("%s", err)
+			t.log.Errorf("failed to connect, %s", err)
 
 			return
 		}
@@ -158,21 +165,21 @@ func (t *mt) announce() {
 			route.consumer.options.Queue.Name,
 		)
 
-		d, err := route.consumer.announce()
+		delivery, err := route.consumer.announce()
 		if err != nil {
-			t.log.Errorf("failed announce consumer")
+			t.log.Errorf("failed to announce consumer")
 		}
 
 		t.log.Debugf(
-			"consumer received message from %s",
+			"consumer received a message from %s",
 			route.consumer.options.Queue.Name,
 		)
 
-		go route.consumer.handle(d)
+		go route.consumer.handle(delivery)
 	}
 }
 
-func (t *mt) HandleFunc(serviceName string, handler func(*Request) error) {
+func (t *MT) AddHandler(serviceName ServiceName, handler HandlerFunc) {
 	r := &route{
 		pattern: serviceName,
 		handler: handler,
@@ -180,7 +187,7 @@ func (t *mt) HandleFunc(serviceName string, handler func(*Request) error) {
 	t.routes = append(t.routes, r)
 }
 
-func (t *mt) HealthCheck() bool {
+func (t *MT) HealthCheck() bool {
 	for _, route := range t.routes {
 		if route.consumer.conn == nil || route.consumer.conn.IsClosed() {
 			go t.announce()
@@ -215,7 +222,7 @@ func dial(log Logger, dsn string) (*amqp.Connection, error) {
 		log.Errorf("failed to connect to amqp, %s", err)
 
 		if maxRetries == 0 {
-			return nil, err
+			return nil, fmt.Errorf("failed to connect to amqp, %w", err)
 		}
 		maxRetries--
 
@@ -223,13 +230,13 @@ func dial(log Logger, dsn string) (*amqp.Connection, error) {
 	}
 }
 
-func (t *mt) isConnected() bool {
+func (t *MT) isConnected() bool {
 	return t.connection != nil
 }
 
 const callTimeout = 20
 
-func (t *mt) Call(serviceName string, request Request, res func(response Response)) (err error) {
+func (t *MT) Call(serviceName ServiceName, request Request, reply ReplyFunc) (err error) {
 	if !t.isConnected() {
 		conn, err := dial(t.log, t.dsn)
 		if err != nil {
@@ -239,17 +246,17 @@ func (t *mt) Call(serviceName string, request Request, res func(response Respons
 		t.connection = conn
 	}
 
-	ch, err := t.connection.Channel()
+	channel, err := t.connection.Channel()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to open channel, %w", err)
 	}
 
-	q, err := ch.QueueDeclare("", false, false, true, false, nil)
+	queue, err := channel.QueueDeclare("", false, false, true, false, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to declare queue, %w", err)
 	}
 
-	err = ch.Publish(
+	err = channel.Publish(
 		t.config.Services[serviceName].Exchange.Name,
 		t.config.Services[serviceName].Exchange.Binding.Key,
 		false,
@@ -257,40 +264,38 @@ func (t *mt) Call(serviceName string, request Request, res func(response Respons
 		amqp.Publishing{
 			Headers: amqp.Table(request.Header),
 			Body:    request.Body,
-			ReplyTo: q.Name,
+			ReplyTo: queue.Name,
 		},
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to publish a message, %w", err)
 	}
 
 	defer func() {
-		_, err = ch.QueueDelete(q.Name, false, false, false)
+		_, err = channel.QueueDelete(queue.Name, false, false, false)
 		if err != nil {
 			return
 		}
 
-		err = ch.Close()
+		err = channel.Close()
 	}()
 
-	t.log.Debugf("call to queue: %s", q.Name)
+	t.log.Debugf("call to queue: %s", queue.Name)
 
-	deliveries, err := getDelivery(ch, q.Name, Consume{})
+	deliveries, err := getDelivery(channel, queue.Name, Consume{})
 	if err != nil {
 		return err
 	}
 
 	select {
 	case d := <-deliveries:
-		res(Response{Body: d.Body})
+		return reply(Response{Body: d.Body})
 	case <-time.After(callTimeout * time.Second):
 		return err
 	}
-
-	return nil
 }
 
-func (t *mt) Cast(serviceName string, request Request) (err error) {
+func (t *MT) Cast(serviceName ServiceName, request Request) (err error) {
 	if !t.isConnected() {
 		conn, err := dial(t.log, t.dsn)
 		if err != nil {
@@ -300,16 +305,16 @@ func (t *mt) Cast(serviceName string, request Request) (err error) {
 		t.connection = conn
 	}
 
-	ch, err := t.connection.Channel()
+	channel, err := t.connection.Channel()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to open channel, %w", err)
 	}
 
 	defer func() {
-		err = ch.Close()
+		err = channel.Close()
 	}()
 
-	return ch.Publish(
+	err = channel.Publish(
 		t.config.Services[serviceName].Exchange.Name,
 		t.config.Services[serviceName].Exchange.Binding.Key,
 		false,
@@ -319,9 +324,14 @@ func (t *mt) Cast(serviceName string, request Request) (err error) {
 			Body:    request.Body,
 		},
 	)
+	if err != nil {
+		return fmt.Errorf("failed to publish a message, %w", err)
+	}
+
+	return nil
 }
 
-func (t *mt) Shutdown() error {
+func (t *MT) Shutdown() error {
 	t.destructor.Do(func() {
 		t.channelCancel()
 
@@ -360,20 +370,20 @@ func (t *mt) Shutdown() error {
 	return nil
 }
 
-func (t *mt) channelCancel() {
-	for _, r := range t.routes {
-		if r.consumer == nil {
+func (t *MT) channelCancel() {
+	for _, route := range t.routes {
+		if route.consumer == nil {
 			continue
 		}
 
-		r.consumer.shutdown = true
-		tag := r.consumer.options.Queue.Consumer.Tag
+		route.consumer.shutdown = true
+		tag := route.consumer.options.Queue.Consumer.Tag
 
-		if r.consumer.channel == nil {
+		if route.consumer.channel == nil {
 			continue
 		}
 
-		if err := r.consumer.channel.Cancel(tag, false); err != nil {
+		if err := route.consumer.channel.Cancel(tag, false); err != nil {
 			t.log.Errorf("failed stops deliveries to the consume %s", tag, err)
 		}
 	}

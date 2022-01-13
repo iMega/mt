@@ -15,7 +15,7 @@ import (
 
 var _ = Describe("Testing handle queue", func() {
 	var (
-		transit mt.MT
+		transit mt.MassTransport
 		req     *mt.Request
 		forever = make(chan bool)
 		confJS  = []byte(`{
@@ -43,12 +43,11 @@ var _ = Describe("Testing handle queue", func() {
 	})
 
 	It("create handler", func() {
-
 		conf, err := mt.ParseConfig(confJS)
 		Expect(err).NotTo(HaveOccurred())
 
 		transit = mt.NewMT(mt.WithAMQP(getDSN()), mt.WithConfig(conf))
-		transit.HandleFunc("test_mailer", func(request *mt.Request) error {
+		transit.AddHandler("test_mailer", func(request *mt.Request, reply mt.ReplyFunc) error {
 			defer func() { forever <- true }()
 			req = request
 
@@ -111,9 +110,75 @@ var _ = Describe("Testing handle queue", func() {
 	})
 })
 
+var _ = Describe("Testing handle queue and reply", func() {
+	var (
+		transit mt.MassTransport
+		actual  []byte
+		confJS  = []byte(`{
+			"services":{
+				"test_mailer":{
+					"exchange":{
+						"name": "` + exchangeName + `",
+						"type": "direct",
+						"durable": true,
+						"binding": {
+							"key":"` + keyName + `"
+						},
+						"queue": {
+							"name":"` + queueName + `",
+							"durable": true
+						}
+					}
+				}
+			}
+		}`)
+	)
+
+	It("remove queue and exchange", func() {
+		setup()
+	})
+
+	It("create handler", func() {
+		conf, err := mt.ParseConfig(confJS)
+		Expect(err).NotTo(HaveOccurred())
+
+		transit = mt.NewMT(mt.WithAMQP(getDSN()), mt.WithConfig(conf))
+		transit.AddHandler("test_mailer", func(request *mt.Request, reply mt.ReplyFunc) error {
+			body := append(request.Body, []byte("_world")...)
+
+			return reply(mt.Response{Body: body})
+		})
+
+		go func() {
+			err := transit.ConnectAndServe()
+			Expect(err).NotTo(HaveOccurred())
+		}()
+	})
+
+	It("send message", func() {
+		<-time.After(time.Second)
+		err := transit.Call(
+			"test_mailer",
+			mt.Request{Body: []byte("hello")},
+			func(response mt.Response) error {
+				actual = response.Body
+				return nil
+			},
+		)
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	It("assertion", func() {
+		Expect(string(actual)).To(Equal("hello_world"))
+
+		err := transit.Shutdown()
+		Expect(err).NotTo(HaveOccurred())
+	})
+})
+
 var _ = Describe("Testing call message", func() {
 	var (
-		transit mt.MT
+		transit mt.MassTransport
 		actual  []byte
 		confJS  = []byte(`{
 			"services":{
@@ -192,7 +257,10 @@ var _ = Describe("Testing call message", func() {
 		err = transit.Call(
 			"test_mailer",
 			mt.Request{Body: []byte("qwerty")},
-			func(response mt.Response) { actual = response.Body },
+			func(response mt.Response) error {
+				actual = response.Body
+				return nil
+			},
 		)
 		Expect(err).NotTo(HaveOccurred())
 	})
@@ -207,7 +275,7 @@ var _ = Describe("Testing call message", func() {
 
 var _ = Describe("Testing cast message", func() {
 	var (
-		transit mt.MT
+		transit mt.MassTransport
 		actual  []byte
 		forever = make(chan bool)
 		confJS  = []byte(`{
@@ -299,7 +367,7 @@ var _ = PDescribe("Testing concurrent consumers", func() {
 	var (
 		messages       int
 		nackedMessages int
-		consumers      []mt.MT
+		consumers      []mt.MassTransport
 		forever        = make(chan bool)
 		confJS         = []byte(`{
 			"services":{
@@ -343,7 +411,7 @@ var _ = PDescribe("Testing concurrent consumers", func() {
 		}
 
 		for _, c := range consumers {
-			c.HandleFunc("test_mailer", func(request *mt.Request) error {
+			c.AddHandler("test_mailer", func(request *mt.Request, reply mt.ReplyFunc) error {
 				messages++
 
 				r := rand.Intn(10)
@@ -357,7 +425,7 @@ var _ = PDescribe("Testing concurrent consumers", func() {
 				return nil
 			})
 
-			go func(c mt.MT) {
+			go func(c mt.MassTransport) {
 				err := c.ConnectAndServe()
 				Expect(err).NotTo(HaveOccurred())
 			}(c)

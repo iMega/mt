@@ -22,7 +22,7 @@ import (
 )
 
 type consumer struct {
-	handler   func(*Request) error
+	handler   HandlerFunc
 	conn      *amqp.Connection
 	queue     *amqp.Queue
 	channel   *amqp.Channel
@@ -102,7 +102,11 @@ func (c *consumer) announce() (<-chan amqp.Delivery, error) {
 
 	c.queue = queue
 
-	delivery, err := getDelivery(c.channel, c.options.Queue.Name, c.options.Queue.Consumer)
+	delivery, err := getDelivery(
+		c.channel,
+		c.options.Queue.Name,
+		c.options.Queue.Consumer,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("%w, %s", errConsumeQueue, err)
 	}
@@ -114,43 +118,12 @@ func (c *consumer) handle(deliveries <-chan amqp.Delivery) {
 	var err error
 
 	for {
-		tag := c.options.Queue.Consumer.Tag
-
-		for d := range deliveries {
-			err := c.handler(&Request{Body: d.Body, Header: Header(d.Headers)})
-			if err == nil {
-				c.log.Debugf("Message ACK, consumerTag=%s", tag)
-
-				if err := d.Ack(false); err != nil {
-					c.log.Errorf("Failed ACK message, %s", err)
-				}
-			} else {
-				c.log.Debugf("Message NACK, consumerTag=%s", tag)
-
-				if err := d.Nack(false, c.options.Queue.Consumer.Requeue); err != nil {
-					c.log.Errorf("Failed ACK message, %s", err)
-				}
-			}
+		for delivery := range deliveries {
+			c.processDelivery(delivery)
 		}
 
 		if c.shutdown {
-			c.log.Debugf("consumer will close %s", tag)
-
-			err := c.channel.Close()
-			if err != nil {
-				c.log.Errorf("consumer close channel %s,", tag)
-			}
-
-			c.channel = nil
-
-			err = c.conn.Close()
-			if err != nil {
-				c.log.Errorf("consumer close connection %s,", tag)
-			}
-
-			c.conn = nil
-
-			c.log.Debugf("consumer closed %s", tag)
+			c.prepareShutdown()
 
 			return
 		}
@@ -164,12 +137,65 @@ func (c *consumer) handle(deliveries <-chan amqp.Delivery) {
 	}
 }
 
+func (c *consumer) processDelivery(delivery amqp.Delivery) {
+	replyFn := func(r Response) error {
+		msg := amqp.Publishing{Body: r.Body}
+
+		err := c.channel.Publish("", delivery.ReplyTo, false, false, msg)
+		if err != nil {
+			return fmt.Errorf("failed to publish a message, %w", err)
+		}
+
+		return nil
+	}
+
+	req := &Request{Body: delivery.Body, Header: Header(delivery.Headers)}
+	tag := c.options.Queue.Consumer.Tag
+
+	if err := c.handler(req, replyFn); err != nil {
+		c.log.Debugf("Message NACK, consumerTag=%s", tag)
+
+		err := delivery.Nack(false, c.options.Queue.Consumer.Requeue)
+		if err != nil {
+			c.log.Errorf("Failed NACK message, %s", err)
+		}
+	}
+
+	c.log.Debugf("Message ACK, consumerTag=%s", tag)
+
+	if err := delivery.Ack(false); err != nil {
+		c.log.Errorf("Failed ACK message, %s", err)
+	}
+}
+
+func (c *consumer) prepareShutdown() {
+	tag := c.options.Queue.Consumer.Tag
+
+	c.log.Debugf("consumer will close %s", tag)
+
+	err := c.channel.Close()
+	if err != nil {
+		c.log.Errorf("consumer close channel %s,", tag)
+	}
+
+	c.channel = nil
+
+	err = c.conn.Close()
+	if err != nil {
+		c.log.Errorf("consumer close connection %s,", tag)
+	}
+
+	c.conn = nil
+
+	c.log.Debugf("consumer closed %s", tag)
+}
+
 func getDelivery(
 	channel *amqp.Channel,
 	queueName string,
 	consumer Consume,
 ) (<-chan amqp.Delivery, error) {
-	return channel.Consume(
+	delivery, err := channel.Consume(
 		queueName,
 		consumer.Tag,
 		consumer.NoAck,
@@ -178,12 +204,17 @@ func getDelivery(
 		consumer.NoWait,
 		consumer.Arguments,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get delivery, %w", err)
+	}
+
+	return delivery, nil
 }
 
 func channelDeclare(conn *amqp.Connection) (*amqp.Channel, error) {
 	channel, err := conn.Channel()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to open channel, %w", err)
 	}
 
 	return channel, nil
@@ -198,7 +229,7 @@ func exchangeDeclare(channel *amqp.Channel, opts *Exchange) error {
 		return errExchangeTypeEmpty
 	}
 
-	if err := channel.ExchangeDeclare(
+	err := channel.ExchangeDeclare(
 		opts.Name,
 		opts.Type,
 		opts.Durable,
@@ -206,15 +237,16 @@ func exchangeDeclare(channel *amqp.Channel, opts *Exchange) error {
 		opts.Internal,
 		opts.NoWait,
 		opts.Arguments,
-	); err != nil {
-		return err
+	)
+	if err != nil {
+		return fmt.Errorf("failed to declare exchange, %w", err)
 	}
 
 	return nil
 }
 
 func queueDeclare(channel *amqp.Channel, opts *Exchange) (*amqp.Queue, error) {
-	q, err := channel.QueueDeclare(
+	queue, err := channel.QueueDeclare(
 		opts.Queue.Name,
 		opts.Queue.Durable,
 		opts.Queue.AutoDelete,
@@ -237,5 +269,5 @@ func queueDeclare(channel *amqp.Channel, opts *Exchange) (*amqp.Queue, error) {
 		return nil, fmt.Errorf("%w, %s", errBindQueue, err)
 	}
 
-	return &q, nil
+	return &queue, nil
 }
