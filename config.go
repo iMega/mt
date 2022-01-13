@@ -16,6 +16,7 @@ package mt
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/streadway/amqp"
@@ -27,7 +28,7 @@ func ParseConfig(jsonConf []byte) (Config, error) {
 
 	err := json.Unmarshal(jsonConf, &conf)
 	if err != nil {
-		return conf, err
+		return conf, fmt.Errorf("failed to unmarshal, %w", err)
 	}
 
 	return conf, nil
@@ -35,7 +36,7 @@ func ParseConfig(jsonConf []byte) (Config, error) {
 
 // Config ...
 type Config struct {
-	Services map[string]Service `json:"services"`
+	Services map[ServiceName]Service `json:"services"`
 }
 
 type Service struct {
@@ -61,7 +62,7 @@ func (e *Exchange) UnmarshalJSON(b []byte) error {
 	xEx := xExchange(DefaultExchange())
 
 	if err := json.Unmarshal(b, &xEx); err != nil {
-		return err
+		return fmt.Errorf("failed to unmarshal, %w", err)
 	}
 
 	*e = Exchange(xEx)
@@ -106,7 +107,7 @@ type Queue struct {
 
 	// @see http://www.rabbitmq.com/blog/2012/04/25/rabbitmq-performance-measurements-part-2/
 	// Консумер не получит следующие n сообщений, пока не подтвердит предыдущие.
-	PrefetchCount int `json:"prefetch_count,omitempty"`
+	PrefetchCount int `json:"prefetchCount,omitempty"`
 
 	Consumer Consume `json:"consume,omitempty"`
 }

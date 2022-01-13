@@ -2,7 +2,7 @@ REPO = github.com/imega/mt
 CWD = /go/src/githib.com/$(REPO)
 GO_IMG = golang:stretch
 
-test: lint clean
+test: clean
 	@GO_IMG=$(GO_IMG) CWD=$(CWD) docker-compose up --abort-on-container-exit
 
 lint:
@@ -10,4 +10,4 @@ lint:
 		golangci/golangci-lint golangci-lint run
 
 clean:
-	@TAG=$(TAG) docker-compose down -v --remove-orphans
+	@GO_IMG=$(GO_IMG) CWD=$(CWD) docker-compose rm -sfv

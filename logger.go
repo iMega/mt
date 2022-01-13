@@ -38,7 +38,7 @@ type logger struct {
 	loggers []*log.Logger
 }
 
-func newLogger() Logger {
+func newLogger() *logger {
 	label := []string{
 		errorLog: "ERROR",
 		infoLog:  "INFO",
