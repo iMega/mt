@@ -141,6 +141,10 @@ func (c *consumer) processDelivery(delivery amqp.Delivery) {
 	replyFn := func(r Response) error {
 		msg := amqp.Publishing{Body: r.Body}
 
+		if delivery.ReplyTo == "" {
+			return nil
+		}
+
 		err := c.channel.Publish("", delivery.ReplyTo, false, false, msg)
 		if err != nil {
 			return fmt.Errorf("failed to publish a message, %w", err)
