@@ -17,6 +17,7 @@ package mt
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/streadway/amqp"
@@ -54,6 +55,8 @@ type Exchange struct {
 
 	Binding Binding `json:"binding,omitempty"`
 	Queue   Queue   `json:"queue,omitempty"`
+
+	ReplyQueue ReplyQueue `json:"replyqueue,omitempty"`
 }
 
 func (e *Exchange) UnmarshalJSON(b []byte) error {
@@ -81,6 +84,9 @@ func DefaultExchange() Exchange {
 		Arguments:  amqp.Table{},
 		Binding:    DefaultBinding(),
 		Queue:      DefaultQueue(),
+		ReplyQueue: ReplyQueue{
+			Timeout: Duration(time.Minute),
+		},
 	}
 }
 
@@ -149,4 +155,28 @@ func DefaultConsumer() Consume {
 
 func uniqueConsumerTag() string {
 	return "ctag-" + uuid.New().String()
+}
+
+type ReplyQueue struct {
+	BindToExchange bool     `json:"bindToExchange,omitempty"`
+	Timeout        Duration `json:"timeout,omitempty"`
+}
+
+type Duration time.Duration
+
+func (e *Duration) UnmarshalJSON(b []byte) error {
+	val := ""
+
+	if err := json.Unmarshal(b, &val); err != nil {
+		return fmt.Errorf("failed to unmarshal, %w", err)
+	}
+
+	dur, err := time.ParseDuration(val)
+	if err != nil {
+		return fmt.Errorf("failed to parse, %w", err)
+	}
+
+	*e = Duration(dur)
+
+	return nil
 }

@@ -23,7 +23,7 @@ import (
 	"github.com/streadway/amqp"
 )
 
-const version = "1.1.0"
+const version = "1.1.2"
 
 var errHandleFuncServiceNameEmpty = errors.New("serviceName of handler func is empty")
 
@@ -234,8 +234,7 @@ func (t *MT) isConnected() bool {
 	return t.connection != nil
 }
 
-const callTimeout = 20
-
+//nolint:funlen,cyclop
 func (t *MT) Call(serviceName ServiceName, request Request, reply ReplyFunc) (err error) {
 	if !t.isConnected() {
 		conn, err := dial(t.log, t.dsn)
@@ -246,19 +245,41 @@ func (t *MT) Call(serviceName ServiceName, request Request, reply ReplyFunc) (er
 		t.connection = conn
 	}
 
+	exchange := t.config.Services[serviceName].Exchange
+
 	channel, err := t.connection.Channel()
 	if err != nil {
 		return fmt.Errorf("failed to open channel, %w", err)
 	}
 
-	queue, err := channel.QueueDeclare("", false, false, true, false, nil)
+	queueDeclareArgs := amqp.Table{}
+
+	if exchange.ReplyQueue.Timeout > 0 {
+		num := int64(time.Duration(exchange.ReplyQueue.Timeout) / time.Millisecond)
+		queueDeclareArgs = amqp.Table{"x-expires": num}
+	}
+
+	queue, err := channel.QueueDeclare("", false, false, true, false, queueDeclareArgs)
 	if err != nil {
 		return fmt.Errorf("failed to declare queue, %w", err)
 	}
 
+	if exchange.ReplyQueue.BindToExchange {
+		err = channel.QueueBind(
+			queue.Name,
+			queue.Name,
+			exchange.Name,
+			true,
+			amqp.Table{},
+		)
+		if err != nil {
+			return fmt.Errorf("%w, %s", errBindQueue, err)
+		}
+	}
+
 	err = channel.Publish(
-		t.config.Services[serviceName].Exchange.Name,
-		t.config.Services[serviceName].Exchange.Binding.Key,
+		exchange.Name,
+		exchange.Binding.Key,
 		false,
 		false,
 		amqp.Publishing{
@@ -284,13 +305,15 @@ func (t *MT) Call(serviceName ServiceName, request Request, reply ReplyFunc) (er
 
 	deliveries, err := getDelivery(channel, queue.Name, Consume{})
 	if err != nil {
+		t.log.Debugf("failed to consume to queue: %s, %s", queue.Name, err)
+
 		return err
 	}
 
 	select {
 	case d := <-deliveries:
 		return reply(Response{Body: d.Body})
-	case <-time.After(callTimeout * time.Second):
+	case <-time.After(time.Duration(exchange.ReplyQueue.Timeout)):
 		return err
 	}
 }
