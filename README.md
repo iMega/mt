@@ -1,3 +1,3 @@
 # MT
 
-[![Build Status](https://travis-ci.org/imega/mt.svg?branch=master)](https://travis-ci.org/imega/mt)
+[![Test](https://github.com/iMega/mt/actions/workflows/test.yml/badge.svg)](https://github.com/iMega/mt/actions/workflows/test.yml)
